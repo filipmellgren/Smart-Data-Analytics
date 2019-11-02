@@ -1,0 +1,58 @@
+---
+title: "RDD"
+author: "Filip Mellgren"
+date: '2019-11-01'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r, include=FALSE}
+library(rio)
+library(tidyverse)
+```
+
+```{r}
+df <- import("chic_aug_07.csv")
+df %>% mutate(PriceX = gsub("[^0-9.]", "", df$price_string),
+              PriceX = as.numeric(PriceX),
+              dist_t = avg_rating - round(avg_rating/0.5)*0.5,
+              treat = if_else(dist_t == 0, 1, 0)) -> df
+
+
+df %>% ggplot(aes(x = dist_t, y = log(PriceX))) + 
+  geom_point(alpha = 0.3, color = "turquoise") +
+  stat_summary(fun.y = "mean", geom = "point", color = "coral", size = 2) +
+  labs(title = " No discontiuity around threshold", 
+       x = "Distance to rounding cut off", y = "Log nightly price"
+       )+
+  # transpaency
+  theme(
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "transparent",colour = NA),
+        plot.background = element_rect(fill = "transparent",colour = NA)
+        )
+ggsave("airbnb_rd.png", bg = "transparent")
+
+
+df %>% filter(avg_rating > 0) %>% ggplot(aes(x = avg_rating, y = log(PriceX))) + 
+  geom_point(alpha = 0.3, color = "turquoise") + geom_smooth(method = "lm", formula = y~x) +
+  # transpaency
+  theme(
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "transparent",colour = NA),
+        plot.background = element_rect(fill = "transparent",colour = NA)
+        )
+ggsave("correlation.png", bg = "transparent")
+
+```
