@@ -56,3 +56,99 @@ df %>% filter(avg_rating > 0) %>% ggplot(aes(x = avg_rating, y = log(PriceX))) +
 ggsave("correlation.png", bg = "transparent")
 
 ```
+
+# Start new analysis
+
+http://emiguel.econ.berkeley.edu/assets/miguel_research/17/_WorkingPaper__Government__Transfers__and__Political_Support.pdf
+
+In their paper, the authors wishes to establish a causal link between political support of the incumbent party and government transfers. The setting is such that families receive "PANES" if their predicted income is above a certain threshold. The reason the government support is based on a prediction is that stated income may suffer from misreported issues CLARIFY and might be a bad proxy of the chronically poor as income is simply a snap shot view of the income of an individual.
+
+```{r}
+
+#df <- import("vn_estimation_2016.dta")
+df_pres <- import("Government Transfers_Replication/conf_president.dta")
+df_mccrary <- import("Government Transfers_Replication/mccrary.dta")
+df_reg_panes <- import("Government Transfers_Replication/reg_panes.dta")
+```
+
+## Descriptive Statistics
+
+To begin the analysis, I establish some observational facts by estimating a regression using OLS. Of course, these results will contain endogeneity bias but will nonetheless be useful as a benchmark. Potential reasons for endogeneity might include:
+* first
+* second
+* third
+
+## Exogenous variation
+To escape from the endogeneity present in the previous analysis, we can think of predicted income as a variable with some exogenous variation around the threshold of being assigned the government support. The basic idea is that households on either side of the threshold will be similar in all characteristics but their treatment status. 
+
+Falling slightly to the right means some indicators of income predicts the household is above the threshold whereas falling on the left side of the threshold means the predcitors state that the household is poor enough to receive the benefits. However, except for extremely modest variation in the income indicators, predicted income may be deemed as something varying almost entirely randomly. 
+
+If there happens to be a large discontinuity in government support around the specified threshold, the effect can plausibly be attributed to treatment status as nothing else may be expected to vary around the somewhat arbtirary threshold of predicted income.
+
+There are, however, a few issues that must be dealt with. First, if certain households anticipate that they may be close to the threshold, they might try to affect the measure predicted income so as to move themselves to the left and thus increase their chance of receiving the governemtn benefit resulting in a potnetially biased sample where the treated population is skewed towards households capable of affecting the outcomes of the government transfer, A second issue relate to potential confounding variables that also vary around the threshold. For example, if it turns out that predicted income was also used for some other government program, then it'd be unclear from what program potnetial effects adhere. Another issue might be if the metric varies around the threshold based on some observable characteristics, then effects could depend on this characteristic rather than treatment status. 
+
+These issues, however, can be checked. The first issue implies a skewed density distirbution around the threshold whereas the second needs to make the case that this variable exists and then show a discontinuity precisly around the threshold. In practice, it is hard to come up with such variables and especially in this case because predicted income is a construct of several variables and unlikely to be used elsewhere.
+
+A final concern partains to whether there is a discontinuity or just a sharp (continuous) decline. This will be an issue if the so called "bandwidth" is wide (See image). 
+
+There is a connection between a regression discontinuity estimates and instrumental variables (in fact, an RDD is an IV estimation). I therefore proceed by presenting the analysis as if it was an IV together with the rich set of intuitive graphs present in an RDD estimation.
+
+## First stage
+The first stage in an IV study considers the strength of the exogenous instrument $z$ (referred to as the "instrument"") in predicting the endogenous variable of interest $x$. Ideally, the instrument is a strong predictor of the endogenous variable to avoid issues related to weak variable bias (Bound Jaeger Baker (1995)). Other than establishing a tight link between the two variables, the first stage is simply a mechanic check that needs to be done. It's importance is measured by an F statistic which is ideally larger than 10.
+
+```{r}
+# First stage
+df_reg_panes %>% ggplot(aes(x = ind_reest, y = aprobado)) + geom_point() + 
+  geom_point(alpha = 0.3, color = "turquoise") +
+  stat_summary_bin(fun.y = "mean", geom = "point", color = "coral", size = 2, bins = 100) +
+  labs(title = " Discontiuity around threshold", 
+       x = "Predicted income", y = "Ever received PANES") +
+  # transpaency
+  theme(
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "transparent",colour = NA),
+        plot.background = element_rect(fill = "transparent",colour = NA)
+        )
+```
+As can be seen in the figure above, there is a clear relationship between the two. Namely that when predicted income changes status, so does PANES status. This is intuitively clear because the government is only handing out the PANES to eligible households (those poor according to predicted income). There are a few exceptions but overall, the relationship is very strong which in the words of RDD can be referred to as a "Sharp RDD".
+
+## Second stage, support for government
+
+```{r}
+# Second stage: support for govt - first wave
+df_reg_panes %>% mutate(below = if_else(ind_reest < 0, 1, 0),
+                        gov2007 = case_when(
+                          h_89 == 9 ~NaN,
+                          h_89 == NA ~NaN,
+                          TRUE ~ (h_89-1)/2)
+                        ) -> df
+
+df %>% drop_na(gov2007, ind_reest) -> df
+fit <- lm(gov2007 ~ ind_reest*below, data = df)
+pred <- predict(fit, interval="confidence",
+                         level = 0.95)
+pred <- as.data.frame(pred)
+df$fit <- pred$fit
+df$lwr <- pred$lwr
+df$upr <- pred$upr
+
+df %>% 
+  ggplot(aes(ind_reest,gov2007)) +
+  stat_summary_bin(fun.y = "mean", geom = "point", bins = 40)+
+  geom_line(aes(ind_reest, fit)) +
+  geom_ribbon(aes(x = ind_reest, ymin = lwr, ymax = upr, alpha = 0.4))
+  
+```
+
+
+## Other variables varying around the threshold
+
+## Gaming around threshold
+
+## Bandwidth
+
+# Conclusion
+
+
+
