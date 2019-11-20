@@ -19,9 +19,15 @@ library(locfit)
 library(rddensity)
 library(rdd)
 library(stargazer)
+library(AER)
+library(ivpack)
 ```
 
-```{r airbnb}
+# Rating effects on price on Airbnb
+
+To investigate whether average rating has a causal impact on the log price of a listing, it might be possible to compare listings with similar ratings that are displayed differently to users. The idea is that if ratings are rounded (which they turned out not to be presently, but may have been so in the past form when the data was taken), then an institutional feature creates variation that is as good as exogenous since ratings on either side of the rounding cutoff will be similarly rated and not expected to have any other systematic differences.
+
+```{r airbnb, message=FALSE, warning=FALSE}
 df <- import("chic_aug_07.csv")
 df %>% mutate(PriceX = gsub("[^0-9.]", "", df$price_string),
               PriceX = as.numeric(PriceX),
@@ -30,6 +36,7 @@ df %>% mutate(PriceX = gsub("[^0-9.]", "", df$price_string),
 # Rating, log price relationship
 df %>% filter(avg_rating > 0) %>% ggplot(aes(x = avg_rating, y = log(PriceX))) + 
   geom_point(alpha = 0.3, color = "turquoise") + geom_smooth(method = "lm", formula = y~x) +
+  labs(x = "Average rating", y = "log price", title = "Positive correlation between ratings and price")
   # transpaency
   theme(
         panel.background = element_rect(fill = "transparent",colour = NA),
@@ -37,6 +44,12 @@ df %>% filter(avg_rating > 0) %>% ggplot(aes(x = avg_rating, y = log(PriceX))) +
         )
 ggsave("correlation.png", bg = "transparent")
 
+
+
+```
+There is a correlation present in the data. Let's investigate whether we can use the techniques intended for this analysis to uncover any causal effect.
+
+```{r airbnb2, message=FALSE, warning=FALSE}
 # "Discontinuity plot"
 df %>% ggplot(aes(x = dist_t, y = log(PriceX))) + 
   geom_point(alpha = 0.3, color = "turquoise") +
@@ -51,9 +64,9 @@ df %>% ggplot(aes(x = dist_t, y = log(PriceX))) +
         )
 ggsave("airbnb_rd.png", bg = "transparent")
 
-
 ```
 
+The plot above strongly suggests there is no such relatioship. I therefore choose to proceed with an already published paper that I know is a meaningful case in point to show what RDD is about.
 
 
 # New analysis, replicating Manacorda, Miguel, Vigorito (2009)
@@ -115,9 +128,9 @@ To begin the analysis, I establish some observational facts by estimating a regr
 * second
 * third
 
-```{r exploration}
+```{r exploration,results='asis'}
 # Simple regression, approval status on predicted income
-ols_fit <- lm(aprobado ~ ind_reest, data = df)
+ols_fit <- lm(gov2007 ~ ind_reest, data = df)
 stargazer(ols_fit, type = "html")
 ```
 
@@ -130,24 +143,18 @@ Falling slightly to the right means some indicators of income predicts the house
 
 If there happens to be a large discontinuity in government support around the specified threshold, the effect can plausibly be attributed to treatment status as nothing else may be expected to vary around the somewhat arbtirary threshold of predicted income.
 
-There are, however, a few issues that must be dealt with. First, if certain households anticipate that they may be close to the threshold, they might try to affect the measure predicted income so as to move themselves to the left and thus increase their chance of receiving the governemtn benefit resulting in a potnetially biased sample where the treated population is skewed towards households capable of affecting the outcomes of the government transfer, A second issue relate to potential confounding variables that also vary around the threshold. For example, if it turns out that predicted income was also used for some other government program, then it'd be unclear from what program potnetial effects adhere. Another issue might be if the metric varies around the threshold based on some observable characteristics, then effects could depend on this characteristic rather than treatment status. 
+There are, however, a few issues that must be dealt with. First, if certain households (or government officials) anticipate that they may be close to the threshold, they might try to affect the measure predicted income so as to move themselves to the left and thus increase their chance of receiving the government benefit resulting in a potnetially biased sample where the treated population is skewed towards households capable of affecting the outcomes of the government transfer, A second issue relate to potential confounding variables that also vary around the threshold. For example, if it turns out that predicted income was also used for some other government program, then it'd be unclear from what program potential effects adhere. Another issue might be if the metric varies around the threshold based on some observable characteristics, then effects could depend on this characteristic rather than treatment status. 
 
 These issues, however, can be checked. The first issue implies a skewed density distirbution around the threshold whereas the second needs to make the case that this variable exists and then show a discontinuity precisly around the threshold. In practice, it is hard to come up with such variables and especially in this case because predicted income is a construct of several variables and unlikely to be used elsewhere.
 
 A final concern partains to whether there is a discontinuity or just a sharp (continuous) decline. This will be an issue if the so called "bandwidth" is wide (See image). 
 
-There is a connection between a regression discontinuity estimates and instrumental variables (in fact, an RDD is an IV estimation). I therefore proceed by presenting the analysis as if it was an IV together with the rich set of intuitive graphs present in an RDD estimation.
-
-Add in: "A concern is manipulation of program assignment by either officials
-or enumerators, due to strategic responses or a correlation between survey non-response and
-political views."
-
-Another concern: did recipients report false non truthful values about their government support?
+There is a connection between a regression discontinuity estimates and instrumental variables (in fact, a fuzzy RDD is an IV estimation, Hahn, Todd, and van der Klaauw (2001) was first with this interpretation). I therefore proceed by presenting the analysis as if it was an IV together with the rich set of intuitive graphs present in an RDD estimation.
 
 ## First stage
 The first stage in an IV study considers the strength of the exogenous instrument $z$ (referred to as the "instrument"") in predicting the endogenous variable of interest $x$. Ideally, the instrument is a strong predictor of the endogenous variable to avoid issues related to weak variable bias (Bound Jaeger Baker (1995)). Other than establishing a tight link between the two variables, the first stage is simply a mechanic check that needs to be done. It's importance is measured by an F statistic which is ideally larger than 10.
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 # First stage
 df %>% gather(above, below, key = "Treatment", value = "Predicted_income") %>% 
   ggplot(aes(x = Predicted_income, y = aprobado, 
@@ -167,7 +174,12 @@ As can be seen in the figure above, there is a clear relationship between the tw
 
 ## Reduced form, support for government
 
-```{r}
+The reduced form can also be interpreted as the intention to treat effect, people on one side of the cutoff were intended to receive PANES and the following graphs show how people intended to receive panes vary their support for the government. The ITT effect is the difference between the graphs around the cutoff.
+
+An important hyperparameter to consider is what bandwidth is selected for the analysis. As can be seen, the local linear regression estimates (the curvy graphs) produce noisier estimates than does the linear relationship.. The reason is that they are locally estimated using less data. In principle it is good to establish the causal effects with an as small interval as possible as this leads to less bias. Unfortunately, it also increases variance which is why there has to be a trade off between the two. I show three variations to give a feel for the sensitivity. 
+
+
+```{r, message=FALSE, warning=FALSE}
 # Reduced form: support for govt - first wave
 # Lower span is less biased, but a noisier estimate.
 
@@ -216,6 +228,40 @@ ggsave("reduced_0.67.png", bg = "transparent")
   
 ```
 
+## Iv regression
+In this part, I formally estimate a model already shown in the graphs based on chapter 6 in Angrist and Pischke.
+
+The model is as follows: 
+
+* First stage: $D_i = \gamma_0 + \gamma_1 x_i + \pi T_i + \gamma_2 x_i T_i + \xi_{1i}$
+* Reduced form, ITT: $Y_i = \mu + \kappa_1 x_i + \rho \pi T_i + \kappa2 x_i T_1  + \xi_{2i}$
+* Second stage: $Y_i = \alpha + \beta_1 x_1 + \rho D_i +  \beta_2 x_i D_i+ \eta_i$
+
+Where:
+
+* $T_i = 1(x_i \geq x_0)$ is an indication of the point of discontinuity.
+* $\mu = \alpha + \rho \gamma_0$
+* $\kappa_1 = \beta_1 + \rho \gamma_1$
+
+```{r regressions, results='asis'}
+df <- df %>% mutate(T_i = if_else(ind_reest >= 0, 1, 0))
+
+iv1 = ivreg(gov2007 ~ ind_reest*aprobado | ind_reest*T_i , data = df)
+
+iv_robust <- robust.se(iv1) # robust s.e.
+stargazer(iv_robust, type = "html")
+```
+
+It is noted that the estimated treatment effect is of about the size indicated by the figures (0.17). This is larger than what the authors report, most likely due to the authors having done some additional data cleaning I've omitted here for brevity and focus on the RDD part. The intercept is larger than 0.5, meaning that more people indicated that they approve of the current president than did not. The interaction term is negative, capturing the negative slope observed to the left in the figures.
+
+```{r}
+iv_summary <- summary(iv1, diagnostics = TRUE, vcov = sandwich) # robust s.e. using sandwich
+```
+
+
+In the paper, the authors additionally allow for varying polynomials of order 0, 1, and 2 (columns 1, 2, and 3) on both sides of the threshold (I only report of order 1 here) and also include varying socioeconomic covariates (columns 4, 5, 6) with which the results remain robust. This is precisely what we would expect if the covariates don't also have a discontiuity around the cut off.
+
+Note a few nice properties of the diagnostics, the Wu Hausman statistic is insignificant meaning that it cannot be rejected that OLS and IV estimates are equally consistent. Hence, OLS estimates might have been preferable since they are more efficient. Additionally, we have that the first stage is fantastic with a p value on the order of less than computer precision.
 
 ## Other variables varying around the threshold
 
@@ -233,10 +279,9 @@ rdd <- rddensity(X = df$ind_reest)
 
 # Plot
 plot <- rdplotdensity(rdd, df$ind_reest, plotRange = c(-0.02, 0.02), plotN = 25)
-  
 
 ```
-```{r}
+```{r mccrary}
 
 df_mccrary %>% mutate(tot = sum(ind_reest),
                       pct = quantile(ind_reest, c(.99)),
@@ -244,12 +289,11 @@ df_mccrary %>% mutate(tot = sum(ind_reest),
                       ) -> df_mccrary
   
 
-Mcrary_test <- DCdensity(df_mccrary$ind_reest, 0, bin = NULL, bw = NULL, verbose = FALSE, plot = TRUE, ext.out = FALSE, htest = FALSE)
-
-
+Mccrary_test <- DCdensity(df_mccrary$ind_reest, 0, bin = NULL, bw = NULL, verbose = FALSE, plot = TRUE, ext.out = FALSE, htest = FALSE)
 ```
 
 
+The McCrary test ends up being insignificant at $p =$ `r round(Mccrary_test,3)`. This means we cannot reject the null hypothesis that there is no discontinuity around the density of the running variable, which is good news for the analysis as this indicates there were no gaming going on, pushing people to either side of the threshold, so people on both sides can be said to be relatively similar. This, along with the effect sizes estiamted earlier, leads to a conclusion that the program likely helped the incumbent party.
 
 ## Bandwidth
 
