@@ -2,32 +2,42 @@
 title: "RDD"
 author: "Filip Mellgren"
 date: '2019-11-01'
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r, include=FALSE}
+```{r libraries, include=FALSE}
 library(rio)
 library(tidyverse)
+library(locfit)
+library(rddensity)
+library(rdd)
+library(stargazer)
 ```
 
-```{r}
+```{r airbnb}
 df <- import("chic_aug_07.csv")
 df %>% mutate(PriceX = gsub("[^0-9.]", "", df$price_string),
               PriceX = as.numeric(PriceX),
               dist_t = avg_rating - round(avg_rating/0.5)*0.5,
               treat = if_else(dist_t == 0, 1, 0)) -> df
+# Rating, log price relationship
+df %>% filter(avg_rating > 0) %>% ggplot(aes(x = avg_rating, y = log(PriceX))) + 
+  geom_point(alpha = 0.3, color = "turquoise") + geom_smooth(method = "lm", formula = y~x) +
+  # transpaency
+  theme(
+        panel.background = element_rect(fill = "transparent",colour = NA),
+        plot.background = element_rect(fill = "transparent",colour = NA)
+        )
+ggsave("correlation.png", bg = "transparent")
 
-
+# "Discontinuity plot"
 df %>% ggplot(aes(x = dist_t, y = log(PriceX))) + 
   geom_point(alpha = 0.3, color = "turquoise") +
   stat_summary(fun.y = "mean", geom = "point", color = "coral", size = 2) +
@@ -36,40 +46,67 @@ df %>% ggplot(aes(x = dist_t, y = log(PriceX))) +
        )+
   # transpaency
   theme(
-        panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = "transparent",colour = NA),
         plot.background = element_rect(fill = "transparent",colour = NA)
         )
 ggsave("airbnb_rd.png", bg = "transparent")
 
 
-df %>% filter(avg_rating > 0) %>% ggplot(aes(x = avg_rating, y = log(PriceX))) + 
-  geom_point(alpha = 0.3, color = "turquoise") + geom_smooth(method = "lm", formula = y~x) +
-  # transpaency
-  theme(
-        panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        panel.background = element_rect(fill = "transparent",colour = NA),
-        plot.background = element_rect(fill = "transparent",colour = NA)
-        )
-ggsave("correlation.png", bg = "transparent")
-
 ```
 
-# Start new analysis
 
+
+# New analysis, replicating Manacorda, Miguel, Vigorito (2009)
+
+Paper can be accessed here:
 http://emiguel.econ.berkeley.edu/assets/miguel_research/17/_WorkingPaper__Government__Transfers__and__Political_Support.pdf
 
-In their paper, the authors wishes to establish a causal link between political support of the incumbent party and government transfers. The setting is such that families receive "PANES" if their predicted income is above a certain threshold. The reason the government support is based on a prediction is that stated income may suffer from misreported issues CLARIFY and might be a bad proxy of the chronically poor as income is simply a snap shot view of the income of an individual.
+Abstract of the paper:
+"We estimate the impact of a large anti-poverty cash transfer program, the Uruguayan PANES, on political
+support for the government that implemented it. Using the discontinuity in program assignment based
+on a pre-treatment eligibility score, we find that beneficiary households are 11 to 14 percentage points
+more likely to favor the current government relative to the previous government. Political support
+effects persist after the program ends. A calibration exercise indicates that these persistent impacts
+are consistent with a model of rational but poorly informed voters learning about politicians’ redistributive
+preferences."
 
-```{r}
+It strives to establish causal effects of government benefits on government support. The following is noted regarding the current academic debate about the issue:
 
+* There is an empirically established relationship that voters respond to macro economic trends.
+* At the same time, there are econometric concerns about endogeneity and small, aggregated samples.
+* The true, causal, magnitude is unknown.
+
+In their paper, the authors wishes to establish a causal link between political support of the incumbent party and government transfers. The setting is such that families receive a government program called "PANES" if their predicted income is above a certain threshold. The government bases its support on a prediction because reported income may suffer from being unstable following a major crisis in the country in the foremath of the event, hard to verify claims as the target often worked informally, and multiple variables help mitigate strategic misreporting.
+
+In summary the Panes program looked had the following defining features:
+
+* It was a temporary cash transfer and food voucher following an economic downturn in the year 2002
+* Recipients were households with low predicted income "based on a large number of pre-treatment covariates".
+- following crisis, many had an unstable income, so present was bad precitor of permanent income
+- hard to verify income claims as the target populaiton of worked informaly
+- multiple variables helps against strategic misreporting
+* Households around the predicted income threshold for receiving Panes were "surveyed and asked a series of questions including their support for the current government, and a second similar follow-up survey took place the following year".
+
+
+```{r load_data}
 #df <- import("vn_estimation_2016.dta")
-df_pres <- import("Government Transfers_Replication/conf_president.dta")
+#df_pres <- import("Government Transfers_Replication/conf_president.dta")
 df_mccrary <- import("Government Transfers_Replication/mccrary.dta")
 df_reg_panes <- import("Government Transfers_Replication/reg_panes.dta")
 ```
+
+```{r data_manipulation}
+# Create variables indicating whether above or below threshold
+df_reg_panes %>% mutate(above = if_else(ind_reest > 0, ind_reest, NaN),
+                        below = if_else(ind_reest < 0, ind_reest, NaN),
+                        gov2007 = case_when(
+                          h_89 == 9 ~NaN,
+                          h_89 == NA ~NaN,
+                          TRUE ~ (h_89-1)/2)
+                        ) -> df
+```
+
+
 
 ## Descriptive Statistics
 
@@ -77,6 +114,14 @@ To begin the analysis, I establish some observational facts by estimating a regr
 * first
 * second
 * third
+
+```{r exploration}
+# Simple regression, approval status on predicted income
+ols_fit <- lm(aprobado ~ ind_reest, data = df)
+stargazer(ols_fit, type = "html")
+```
+
+Overall, there is a negative relationship between predicted income and government support. Likely reflecting party difference in support among various income groups.
 
 ## Exogenous variation
 To escape from the endogeneity present in the previous analysis, we can think of predicted income as a variable with some exogenous variation around the threshold of being assigned the government support. The basic idea is that households on either side of the threshold will be similar in all characteristics but their treatment status. 
@@ -93,58 +138,118 @@ A final concern partains to whether there is a discontinuity or just a sharp (co
 
 There is a connection between a regression discontinuity estimates and instrumental variables (in fact, an RDD is an IV estimation). I therefore proceed by presenting the analysis as if it was an IV together with the rich set of intuitive graphs present in an RDD estimation.
 
+Add in: "A concern is manipulation of program assignment by either officials
+or enumerators, due to strategic responses or a correlation between survey non-response and
+political views."
+
+Another concern: did recipients report false non truthful values about their government support?
+
 ## First stage
 The first stage in an IV study considers the strength of the exogenous instrument $z$ (referred to as the "instrument"") in predicting the endogenous variable of interest $x$. Ideally, the instrument is a strong predictor of the endogenous variable to avoid issues related to weak variable bias (Bound Jaeger Baker (1995)). Other than establishing a tight link between the two variables, the first stage is simply a mechanic check that needs to be done. It's importance is measured by an F statistic which is ideally larger than 10.
 
 ```{r}
 # First stage
-df_reg_panes %>% ggplot(aes(x = ind_reest, y = aprobado)) + geom_point() + 
-  geom_point(alpha = 0.3, color = "turquoise") +
-  stat_summary_bin(fun.y = "mean", geom = "point", color = "coral", size = 2, bins = 100) +
+df %>% gather(above, below, key = "Treatment", value = "Predicted_income") %>% 
+  ggplot(aes(x = Predicted_income, y = aprobado, 
+             color = Treatment, fill = Treatment)) +
+  geom_smooth(method = "loess", span = 0.5) +
+  geom_point(size = 0.3) +
+  theme_minimal() +
   labs(title = " Discontiuity around threshold", 
        x = "Predicted income", y = "Ever received PANES") +
-  # transpaency
-  theme(
-        panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
+    theme(
         panel.background = element_rect(fill = "transparent",colour = NA),
         plot.background = element_rect(fill = "transparent",colour = NA)
         )
+ggsave("first_stage.png", bg = "transparent")
 ```
 As can be seen in the figure above, there is a clear relationship between the two. Namely that when predicted income changes status, so does PANES status. This is intuitively clear because the government is only handing out the PANES to eligible households (those poor according to predicted income). There are a few exceptions but overall, the relationship is very strong which in the words of RDD can be referred to as a "Sharp RDD".
 
-## Second stage, support for government
+## Reduced form, support for government
 
 ```{r}
-# Second stage: support for govt - first wave
-df_reg_panes %>% mutate(below = if_else(ind_reest < 0, 1, 0),
-                        gov2007 = case_when(
-                          h_89 == 9 ~NaN,
-                          h_89 == NA ~NaN,
-                          TRUE ~ (h_89-1)/2)
-                        ) -> df
-
-df %>% drop_na(gov2007, ind_reest) -> df
-fit <- lm(gov2007 ~ ind_reest*below, data = df)
-pred <- predict(fit, interval="confidence",
-                         level = 0.95)
-pred <- as.data.frame(pred)
-df$fit <- pred$fit
-df$lwr <- pred$lwr
-df$upr <- pred$upr
+# Reduced form: support for govt - first wave
+# Lower span is less biased, but a noisier estimate.
 
 df %>% 
-  ggplot(aes(ind_reest,gov2007)) +
-  stat_summary_bin(fun.y = "mean", geom = "point", bins = 40)+
-  geom_line(aes(ind_reest, fit)) +
-  geom_ribbon(aes(x = ind_reest, ymin = lwr, ymax = upr, alpha = 0.4))
+  gather(above, below, key = "Treatment", value = "Predicted_income") %>% 
+  ggplot(aes(x = Predicted_income, y = gov2007, 
+             color = Treatment, fill = Treatment)) +
+  geom_smooth(method = lm, span = 0.67) +
+  theme_minimal() +
+  labs(title = "Linear estimate", 
+       x = "Predicted income", y = "Government support 2007") +
+    theme(
+        panel.background = element_rect(fill = "transparent",colour = NA),
+        plot.background = element_rect(fill = "transparent",colour = NA)
+        )
+ggsave("reduced_line.png", bg = "transparent")
+
+
+df %>% 
+  gather(above, below, key = "Treatment", value = "Predicted_income") %>% 
+  ggplot(aes(x = Predicted_income, y = gov2007, 
+             color = Treatment, fill = Treatment)) +
+  geom_smooth(method = "loess", span = 0.33) +
+  theme_classic() +
+  labs(title = "Span = 0.33", 
+       x = "Predicted income", y = "Government support 2007") +
+    theme(
+        panel.background = element_rect(fill = "transparent",colour = NA),
+        plot.background = element_rect(fill = "transparent",colour = NA)
+        )
+ggsave("reduced_0.33.png", bg = "transparent")
+
+df %>% 
+  gather(above, below, key = "Treatment", value = "Predicted_income") %>% 
+  ggplot(aes(x = Predicted_income, y = gov2007, 
+             color = Treatment, fill = Treatment)) +
+  geom_smooth(method = "loess", span = 0.67) +
+  theme_minimal() +
+  labs(title = "Span = 0.67", 
+       x = "Predicted income", y = "Government support 2007") +
+    theme(
+        panel.background = element_rect(fill = "transparent",colour = NA),
+        plot.background = element_rect(fill = "transparent",colour = NA)
+        )
+ggsave("reduced_0.67.png", bg = "transparent")
   
 ```
 
 
 ## Other variables varying around the threshold
 
-## Gaming around threshold
+
+
+## Density around threshold
+```{r}
+df %>% 
+  ggplot(aes(x = ind_reest)) + 
+  geom_density(trim = TRUE, alpha = 0.4) +
+  geom_histogram(aes(y = ..density..), bins = 30, alpha = 0.5)
+```
+```{r}
+rdd <- rddensity(X = df$ind_reest)
+
+# Plot
+plot <- rdplotdensity(rdd, df$ind_reest, plotRange = c(-0.02, 0.02), plotN = 25)
+  
+
+```
+```{r}
+
+df_mccrary %>% mutate(tot = sum(ind_reest),
+                      pct = quantile(ind_reest, c(.99)),
+                      ind_reest = if_else(ind_reest < pct, ind_reest, NaN)
+                      ) -> df_mccrary
+  
+
+Mcrary_test <- DCdensity(df_mccrary$ind_reest, 0, bin = NULL, bw = NULL, verbose = FALSE, plot = TRUE, ext.out = FALSE, htest = FALSE)
+
+
+```
+
+
 
 ## Bandwidth
 
