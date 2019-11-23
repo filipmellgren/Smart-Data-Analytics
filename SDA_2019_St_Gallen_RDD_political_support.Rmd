@@ -3,8 +3,8 @@ title: "SDA 2019 St Gallen: Regression Discontinuity Design and role of governme
 author: "Filip Mellgren"
 date: '2019-11-01'
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 bibliography: bibliography.bib
 ---
 
@@ -22,6 +22,11 @@ library(rdd)
 library(stargazer)
 library(AER)
 library(ivpack)
+# Set a parameter depending on preffered output
+# stargazer_output <- "html" 
+# stargazer_output <- "text" 
+stargazer_output <- "latex" 
+
 ```
 This document presents the topic of regression discontinity design, an econometric tehnnique used to establish causal estimates when the data varies discontinuously around a point due to some institutional feature. The original intention was to do this on Airbnb data collected from the web, however, I proceed with replicating a paper because there were no apparent discontinutiy present in the Airbnb data. Results from the Airbnb data are presented towards the end.
 
@@ -87,7 +92,7 @@ To begin the analysis, I establish some observational facts by estimating a regr
 # Simple regression, approval status on approved for PANES
 df2 <- df %>% rename("Gov. Support" = gov2007, "Received PANES"=aprobado, "Predicted Income" = ind_reest)
 ols_fit <- lm(`Gov. Support` ~ `Received PANES` + `Predicted Income`, data = df2)
-stargazer(ols_fit, type = "html", flip = TRUE)
+stargazer(ols_fit, type = stargazer_output, flip = TRUE)
 ```
 
 Overall, there is a negative relationship between predicted income and government support. Likely reflecting party difference in support among various income groups.
@@ -206,7 +211,7 @@ df2 <- df2 %>% mutate(T_i = if_else(`Predicted Income` >= 0, 1, 0))
 iv1 = ivreg(`Gov. Support` ~ `Predicted Income`*`Received PANES` | `Predicted Income`*T_i , data = df2)
 
 iv_robust <- robust.se(iv1) # robust s.e.
-stargazer(iv_robust, ols_fit, type = "html")
+stargazer(iv_robust, ols_fit, type = stargazer_output)
 ```
 
 It is noted that the estimated treatment effect is of about the size indicated by the figures (0.17). This is larger than what the authors report, most likely due to the authors having done some additional data cleaning I've omitted here for brevity and focus on the RDD part. The intercept is larger than 0.5, meaning that more people indicated that they approve of the current president than did not. The interaction term is negative, capturing the negative slope observed to the left in the figures.
