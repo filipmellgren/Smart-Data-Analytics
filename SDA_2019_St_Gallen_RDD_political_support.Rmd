@@ -3,8 +3,8 @@ title: "SDA 2019 St Gallen: Regression Discontinuity Design and role of governme
 author: "Filip Mellgren"
 date: '2019-11-23'
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 bibliography: bibliography.bib
 ---
 
@@ -25,7 +25,7 @@ library(ivpack)
 # Set a parameter depending on preffered output
 stargazer_output <- "html" 
 # stargazer_output <- "text" 
-# stargazer_output <- "latex" 
+#stargazer_output <- "latex" 
 
 ```
 This document presents the topic of regression discontinity design, an econometric tehnnique used to establish causal estimates when the data varies discontinuously around a point due to some institutional feature. The original intention was to do this on Airbnb data collected from the web, however, I proceed with replicating a paper because there were no apparent discontinutiy present in the Airbnb data. Results from the Airbnb data are presented towards the end.
@@ -349,12 +349,15 @@ df %>% mutate(above = if_else(dist_t >= 0, dist_t, NaN),
   theme(
     panel.background = element_rect(fill = "transparent",colour = NA),
     plot.background = element_rect(fill = "transparent",colour = NA))
+ggsave("images/airbnb_rd_close.png", bg = "transparent")
 ```
 
 
 The local polynomial fit suggests there is no relatioship. It appears as if there is a relation by judging from the black linear fits. These are likely biased as they are estmated with data quite far from the cutoff. As can be seen in the graph with data less than 0.15 away from the cutoff, the relationship virtually disappears as indicated by the local polynomial.
 
-However, I provide a power calculation around the point estimate of half the effect size estimated under the linear distance (jumo between the black lines). Note that the black lines might be biased by data far from the threshold and that particularly the one above the cutoff is quite far from the local polynomial fit. 
+
+# Power calculation
+I provide a power calculation around the point estimate of half the effect size estimated under the linear distance (jump between the black lines). Note that the black lines might be biased by data far from the threshold and that particularly the one above the cutoff is quite far from the local polynomial fit. 
 
 To obtain the point estimate, it's enough to do estimate a regression using OLS here, as the RDD is "Sharp" (deterministic) meaning the first stage analogy would be precisely 1.
 
@@ -363,9 +366,7 @@ df <- df %>% mutate(T_i = if_else(dist_t >= 0, 1, 0))
 
 ols_abnb <- lm(log(PriceX) ~ dist_t*T_i , data = df)
 
-ols_abnb_robust <- robust.se(ols_abnb) # robust s.e.
-
-stargazer(ols_abnb_robust, type = stargazer_output)
+stargazer(ols_abnb, type = stargazer_output)
 ```
 
 
@@ -398,12 +399,12 @@ power_values <- power_values %>% mutate(`p = 5%` = req_sample_size,
 power_values %>% ggplot(aes(x = value, y = Power, color = Significance_level)) +
   geom_line() + 
   labs(title = "Required sample per desired power",
-       caption = "Effect size is half the estimated effect under the biased estimate, standard deviations are based on estimated standard deviation",
          x = "Required sample size", y = "Power") +
   theme_minimal()+
   theme(
     panel.background = element_rect(fill = "transparent",colour = NA),
     plot.background = element_rect(fill = "transparent",colour = NA))
+ggsave("images/airbnb_power.png", bg = "transparent")
 ```
 
 
