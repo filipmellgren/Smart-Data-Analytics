@@ -3,8 +3,8 @@ title: "SDA 2019 St Gallen: Regression Discontinuity Design and role of governme
 author: "Filip Mellgren"
 date: '2019-11-01'
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 bibliography: bibliography.bib
 ---
 
@@ -23,55 +23,9 @@ library(stargazer)
 library(AER)
 library(ivpack)
 ```
-This document presents the topic of regression discontinity design, an econometric tehnnique used to establish causal estimates when the data varies discontinuously around a point due to some institutional feature. The original intention was to do this on Airbnb data collected from the web, however, I proceed with replicating a paper because there were no apparent discontinutiy present in the Airbnb data.
+This document presents the topic of regression discontinity design, an econometric tehnnique used to establish causal estimates when the data varies discontinuously around a point due to some institutional feature. The original intention was to do this on Airbnb data collected from the web, however, I proceed with replicating a paper because there were no apparent discontinutiy present in the Airbnb data. Results from the Airbnb data are presented towards the end.
 
-
-# Rating effects on price on Airbnb
-
-To investigate whether average rating has a causal impact on the log price of a listing, it might be possible to compare listings with similar ratings that are displayed differently to users. The idea is that if ratings are rounded (which they turned out not to be presently, but may have been so in the past when the data was taken), then an institutional feature creates variation that is as good as exogenous since ratings on either side of the rounding cutoff will be similarly rated and not expected to have any other systematic differences.
-
-```{r airbnb, message=FALSE, warning=FALSE}
-df <- import("chic_aug_07.csv")
-df %>% mutate(PriceX = gsub("[^0-9.]", "", df$price_string),
-              PriceX = as.numeric(PriceX),
-              cutoff = round((avg_rating-0.25)*2)/2 + 0.25,
-              dist_t = avg_rating - cutoff,
-              treat = if_else(dist_t == 0, 1, 0)) -> df
-
-df %>% filter(avg_rating > 0) %>% ggplot(aes(x = avg_rating, y = log(PriceX))) + 
-  geom_point(alpha = 0.3, color = "turquoise") + geom_smooth(method = "lm", formula = y~x) +
-  labs(x = "Average rating", y = "log price", title = "Positive correlation between ratings and price") +
-  theme(
-        panel.background = element_rect(fill = "transparent",colour = NA),
-        plot.background = element_rect(fill = "transparent",colour = NA)
-        )
-ggsave("images/correlation.png", bg = "transparent")
-```
-There is a correlation present in the data. Let's investigate whether we can use the techniques intended for this analysis to uncover any causal effect.
-
-```{r airbnb2, message=FALSE, warning=FALSE}
-# "Discontinuity plot"
-
-# Rating, log price relationship
-df %>% mutate(above = if_else(dist_t >= 0, dist_t, NaN),
-                        below = if_else(dist_t < 0, dist_t, NaN)) %>%
-  gather(above, below, key = "Treatment", value = "dist_to_cutoff") %>% 
-  ggplot(aes(x = dist_to_cutoff, y = log(PriceX), 
-             color = Treatment, fill = Treatment)) + 
-  geom_smooth(method = loess, span = 0.75) +
-  geom_point(alpha = 0.3) +
-  labs(title = " No discontiuity around threshold", 
-       x = "Distance to rounding cut off", y = "Log nightly price") +
-  theme(
-    panel.background = element_rect(fill = "transparent",colour = NA),
-    plot.background = element_rect(fill = "transparent",colour = NA))
-ggsave("images/airbnb_rd.png", bg = "transparent")
-```
-
-The plot above strongly suggests there is no such relatioship. I therefore choose to proceed with an already published paper that I know is a meaningful case in point to show what RDD is about.
-
-
-# New analysis, replicating Manacorda, Miguel, Vigorito (2009)
+# Replicating Manacorda, Miguel, Vigorito (2009)
 
 The paper by @manacorda2011government can be accessed from here:
 http://emiguel.econ.berkeley.edu/assets/miguel_research/17/_WorkingPaper__Government__Transfers__and__Political_Support.pdf
@@ -98,7 +52,7 @@ In summary the Panes program looked had the following defining features:
 
 * It was a temporary cash transfer and food voucher following an economic downturn in the year 2002
 * Recipients were households with low predicted income "based on a large number of pre-treatment covariates".
-    - following crisis, many had an unstable income, so present was bad precitor of permanent income
+    - following crisis, many had an unstable income, so present was bad predictor of permanent income
     - hard to verify income claims as the target populaiton of worked informaly
     - multiple variables helps against strategic misreporting
 * Households around the predicted income threshold for receiving Panes were "surveyed and asked a series of questions including their support for the current government, and a second similar follow-up survey took place the following year".
@@ -127,12 +81,13 @@ To begin the analysis, I establish some observational facts by estimating a regr
 
 * Recipients already leaned towards one political side.
 * Recipients respond they approve of the president in order to not loose benefits
-    - However, Uruguay isn't a corrput country, hence unlikely.
+    - However, Uruguay isn't a corrupt country, hence unlikely.h
 
 ```{r exploration,results='asis'}
 # Simple regression, approval status on approved for PANES
-ols_fit <- lm(gov2007 ~ aprobado + ind_reest, data = df)
-stargazer(ols_fit, type = "html")
+df2 <- df %>% rename("Gov. Support" = gov2007, "Received PANES"=aprobado, "Predicted Income" = ind_reest)
+ols_fit <- lm(`Gov. Support` ~ `Received PANES` + `Predicted Income`, data = df2)
+stargazer(ols_fit, type = "html", flip = TRUE)
 ```
 
 Overall, there is a negative relationship between predicted income and government support. Likely reflecting party difference in support among various income groups.
@@ -246,9 +201,9 @@ Where:
 * $x_i$ is predicted income, the running variable.
 
 ```{r regressions, results='asis'}
-df <- df %>% mutate(T_i = if_else(ind_reest >= 0, 1, 0))
+df2 <- df2 %>% mutate(T_i = if_else(`Predicted Income` >= 0, 1, 0))
 
-iv1 = ivreg(gov2007 ~ ind_reest*aprobado | ind_reest*T_i , data = df)
+iv1 = ivreg(`Gov. Support` ~ `Predicted Income`*`Received PANES` | `Predicted Income`*T_i , data = df2)
 
 iv_robust <- robust.se(iv1) # robust s.e.
 stargazer(iv_robust, ols_fit, type = "html")
@@ -268,11 +223,6 @@ Note a few nice properties of the diagnostics, the Wu Hausman statistic is insig
 ```{r, results = 'asis'}
 iv_summary
 ```
-
-
-## Other variables varying around the threshold
-
-
 
 ## Density around threshold
 
@@ -326,7 +276,7 @@ dev.off()
 
 
 
-The McCrary test ends up being insignificant at $p =$ `r round(Mccrary_test,3)`. This means we cannot reject the null hypothesis that there is no discontinuity around the density of the running variable, which is good news for the analysis as this indicates there were no gaming going on, pushing people to either side of the threshold, so people on both sides can be said to be relatively similar. This, along with the effect sizes estiamted earlier, leads to a conclusion that the program likely helped the incumbent party.
+The McCrary test (@mccrary) ends up being insignificant at $p =$ `r round(Mccrary_test,3)`. This means we cannot reject the null hypothesis that there is no discontinuity around the density of the running variable, which is good news for the analysis as this indicates there were no gaming going on, pushing people to either side of the threshold, so people on both sides can be said to be relatively similar. This, along with the effect sizes estiamted earlier, leads to a conclusion that the program likely helped the incumbent party.
 
 # Conclusion
 It appears as if there is a large causal effect of the government program on government support. This is confirmed by the IV estimates of the RDD and robustness checked by running gaming checks. It could still be the case that a covariate varies around the same threshold and is the driver of the effect. However, this seems unlikely as the running variable is an econometric prediction of reported income that was made up of several variables. That one would be discontinuous around the same value as predicted income needs a pervasive case. 
@@ -334,6 +284,52 @@ It appears as if there is a large causal effect of the government program on gov
 The main remaining concern is that reported approval of the president is not a good measure of voting intentions. As was noted earlier, Uruguay is not a corrupt country so respondents had no incentive to report support when they don't support the president. Additionally, the parliamentarianism of Uruguay makes it likely that approval of the president is strongly related to voting intentions of the president's party. 
 
 A final note of caution is to interpret the point estimate in this report carefully as the point estimates don't correspond to those of the authors, despite using the same data set. As was noted, this probably boils down to me omitting some data cleaning that the authors may have done to improve the accuracy of reported estimates.
+
+# Rating effects on price on Airbnb
+
+To investigate whether average rating has a causal impact on the log price of a listing, it might be possible to compare listings with similar ratings that are displayed differently to users. The idea is that if ratings are rounded (which they turned out not to be presently, but may have been so in the past when the data was taken), then an institutional feature creates variation that is as good as exogenous since ratings on either side of the rounding cutoff will be similarly rated and not expected to have any other systematic differences.
+
+```{r airbnb, message=FALSE, warning=FALSE}
+df <- import("chic_aug_07.csv")
+df %>% mutate(PriceX = gsub("[^0-9.]", "", df$price_string),
+              PriceX = as.numeric(PriceX),
+              cutoff = round((avg_rating-0.25)*2)/2 + 0.25,
+              dist_t = avg_rating - cutoff,
+              treat = if_else(dist_t == 0, 1, 0)) -> df
+
+df %>% filter(avg_rating > 0) %>% ggplot(aes(x = avg_rating, y = log(PriceX))) + 
+  geom_point(alpha = 0.3, color = "turquoise") + geom_smooth(method = "lm", formula = y~x) +
+  labs(x = "Average rating", y = "log price", title = "Positive correlation between ratings and price") +
+  theme(
+        panel.background = element_rect(fill = "transparent",colour = NA),
+        plot.background = element_rect(fill = "transparent",colour = NA)
+        )
+ggsave("images/correlation.png", bg = "transparent")
+```
+There is a correlation present in the data. Let's investigate whether we can use the techniques intended for this analysis to uncover any causal effect.
+
+```{r airbnb2, message=FALSE, warning=FALSE}
+# "Discontinuity plot"
+
+# Rating, log price relationship
+df %>% mutate(above = if_else(dist_t >= 0, dist_t, NaN),
+                        below = if_else(dist_t < 0, dist_t, NaN)) %>%
+  gather(above, below, key = "Treatment", value = "dist_to_cutoff") %>% 
+  ggplot(aes(x = dist_to_cutoff, y = log(PriceX), 
+             color = Treatment, fill = Treatment)) + 
+  geom_smooth(method = loess, span = 0.75) +
+  geom_point(alpha = 0.3) +
+  labs(title = " No discontiuity around threshold", 
+       x = "Distance to rounding cut off", y = "Log nightly price") +
+  theme(
+    panel.background = element_rect(fill = "transparent",colour = NA),
+    plot.background = element_rect(fill = "transparent",colour = NA))
+ggsave("images/airbnb_rd.png", bg = "transparent")
+```
+
+The plot above strongly suggests there is no such relatioship. I therefore choose to proceed with an already published paper that I know is a meaningful case in point to show what RDD is about.
+
+
 
 
 # References
